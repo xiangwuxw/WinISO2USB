@@ -13,7 +13,7 @@
 # How to run 
 # 1. Have one iso in the folder of the script
 # 2. Plug in an USB < 32G
-# 3. Powershell -ExecutionPolicy Bypass -File iso2usb.ps1
+# 3. Powershell -ExecutionPolicy Bypass -File winiso2usb.ps1
 # 
 
 #
@@ -266,7 +266,13 @@ $fat32part | Add-PartitionAccessPath -AssignDriveLetter -OutVariable fat32access
 
 # Get the partition again to refresh the assigned letter
 $fat32part = $fat32part | Get-Partition
-$fat32driveletter = $fat32part.DriveLetter.ToString() + ":"
+$fat32driveletter = $fat32part.DriveLetter.ToString()
+if ([string]::IsNullOrEmpty($fat32driveletter))
+{
+	write-host "FAT32 Partition Initialization Failed!" 
+	break	
+}
+$fat32driveletter = $fat32driveletter + ":"
 
 # Format the NTFS partition and assign the drive letter
 $usbdisk | Get-Partition -PartitionNumber 2 -OutVariable ntfspart | Format-Volume -FileSystem NTFS -NewFileSystemLabel "NTFSDATA" -OutVariable ntfs32vol
@@ -274,12 +280,25 @@ $ntfspart | Add-PartitionAccessPath -AssignDriveLetter -OutVariable ntfsaccesspa
 
 # Get the partition again to refresh the assigned letter
 $ntfspart = $ntfspart | Get-Partition
-$ntfsdriveletter = $ntfspart.DriveLetter.ToString() + ":"
+$ntfsdriveletter = $ntfspart.DriveLetter.ToString()
+if ([string]::IsNullOrEmpty($ntfsdriveletter))
+{
+	write-host "NTFS Partition Initialization Failed!" 
+	break	
+}
+$ntfsdriveletter = $ntfsdriveletter + ":"
 
 # Mount the ISO to virtual DVD drive and get the driver letter
 $isoimage = Mount-DiskImage -ImagePath $isofile
 $isovol = $isoimage | Get-Volume
-$isodriveletter = $isovol.DriveLetter.ToString() + ":"
+#$isodriveletter = $isovol.DriveLetter.ToString() + ":"
+$isodriveletter = $isovol.DriveLetter.ToString()
+if ([string]::IsNullOrEmpty($isodriveletter))
+{
+	write-host "ISO DVD Mount Failed!" 
+	break	
+}
+$isodriveletter = $isodriveletter + ":"
 
 #
 # Prepare the envrinment vars for robocopy to copy files
@@ -292,6 +311,7 @@ $fat32bootwimfolder = $fat32driveletter + "\sources"
 
 #
 # Use Rococopy to copy the Windows Setup Files to NTFS and FAT32 partitions
+# Don't expect the copy will fail
 #
 robocopy $isoroot $ntfsroot /E
 robocopy $isodriveletter $fat32driveletter /MIR /XD sources
