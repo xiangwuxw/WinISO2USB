@@ -308,6 +308,7 @@ $isofile | Out-File $fat32rootlog
 #
 # Dismount the ISO image, eject the DVD. Keep retrying every 1 second
 #
+$loopcount = 0
 while($isoimage.Attached) 
 {
 	$isoimage  = Dismount-DiskImage $isofile 
