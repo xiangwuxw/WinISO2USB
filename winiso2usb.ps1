@@ -318,7 +318,7 @@ while($isoimage.Attached)
 	}
 
 	$loopcount++
-	if ($oopcount -gt 30) 
+	if ($loopcount -gt 30) 
 	{
 		Write-Host "Failed to Eject ISO/DVD!"
 		break
