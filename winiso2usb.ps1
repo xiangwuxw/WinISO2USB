@@ -1,5 +1,5 @@
 <#
-# Copyright 2022 
+# Copyright 2022 xiangwuxw
 # MIT License. Feel free to modify and reuse. 
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
@@ -65,6 +65,7 @@
 $fat32sizeG = 1
 $maxusbsizeG = 32
 $settingfile = "iso2usb.cfg"
+$dvdtestfile = ":\efi\boot\bootx64.efi"
 
 #
 # Calculate the size in byte. 
@@ -74,75 +75,103 @@ $fat32size = $fat32sizeG * $sizeinG
 $maxusbsize = $maxusbsizeG * $sizeinG
 
 #
-# Check the local path, 
-# 1. If there is one ISO file, use that file
-# 
-$currentpath = Get-Location 
-$currentpath = $currentpath.Path + "\*"
-Get-ChildItem -Path $currentpath -Attributes !D -Include ('*.iso', '*.img') -OutVariable isofile
+# Check DVD ROM. If there is a Setup DVD, we will use it
+# We just need one DVD
+#
+$dvdvol = Get-Volume | where { ($_.DriveType -eq "CD-ROM") -and ($_.Size -gt 0) }
+if (!($dvdvol.count -gt 1)) {
+	if (!([string]::IsNullOrEmpty($dvdvol.DriveLetter)))
+	{ 
+		$dvddriveletter = $dvdvol.DriveLetter.ToString()
+		$dvdtestfilepath = $dvddriveletter + $dvdtestfile
 
-#
-# It's not just one ISO file, reset the var to null
-#
-if ($isofile.count -ne 1)
-{ 
-	$isofile = $null
+		#
+		# If bootx64.efi is not there, it's not the setup disk.
+		#
+		if (!(Test-path -Path $dvdtestfilepath))
+		{
+			$dvddriveletter = $null
+		} else {
+			$isofile = $null
+		}
+	} 
 } else {
-	$isofile = $isofile.VersionInfo.FileName
+	write-hsot "More then two DVD ROM! We can only use 1!"
 }
 
-#
-# 2. If there is a saved setting, use the setting.
-#
-if (Test-path -Path $settingfile)
-{ 
-	$tempisofile = Get-Content $settingfile 
-	if (!(Test-path -Path $tempisofile))
-	{
-		write-host "Invalid Content in Configuration File!"
+if ([string]::IsNullOrEmpty($dvddriveletter))
+{
+	#
+	# Check the local path, 
+	# 1. If there is one ISO file, use that file
+	# 
+	$currentpath = Get-Location 
+	$currentpath = $currentpath.Path + "\*"
+	Get-ChildItem -Path $currentpath -Attributes !D -Include ('*.iso', '*.img') -OutVariable isofile
+
+	#
+	# It's not just one ISO file, reset the var to null
+	#
+	if ($isofile.count -ne 1)
+	{ 
+		$isofile = $null
 	} else {
-		$isofile = $tempisofile
+		$isofile = $isofile.VersionInfo.FileName
+	}	
+
+	#
+	# 2. If there is a saved setting, use the setting.
+	#
+	if (Test-path -Path $settingfile)
+	{ 
+		$tempisofile = Get-Content $settingfile 
+		if (!(Test-path -Path $tempisofile))
+		{
+			write-host "Invalid Content in Configuration File!"
+		} else {
+			$isofile = $tempisofile
+		}
+	}	
+
+	#
+	# If the isofile is not defined, pop up a Window to allow the user to choose an ISO/IMG file. 
+	#
+	if ([string]::IsNullOrEmpty($isofile))
+	{
+		Add-Type -AssemblyName System.Windows.Forms
+		$FileBrowser = New-Object System.Windows.Forms.OpenFileDialog -Property @{ 
+        	InitialDirectory = Get-Location
+        	Filter = 'Choose a Widnows Setup ISO|*.img;*.iso'
+		}
+		$FileBrowser.ShowDialog()
+		$isofile = $FileBrowser.FileName
 	}
-}
 
-#
-# If the isofile is not defined, pop up a Window to allow the user to choose an ISO/IMG file. 
-#
-if ([string]::IsNullOrEmpty($isofile))
-{
-	Add-Type -AssemblyName System.Windows.Forms
-	$FileBrowser = New-Object System.Windows.Forms.OpenFileDialog -Property @{ 
-        InitialDirectory = Get-Location
-        Filter = 'Choose a Widnows Setup ISO|*.img;*.iso'
+	#
+	# If user didn't choose anything, and isofile is still null, let's break
+	#
+	if ([string]::IsNullOrEmpty($isofile))
+	{
+		write-host "No ISO Found! Please rerun and choose a Windows Setup ISO file." 
+		break
 	}
-	$FileBrowser.ShowDialog()
-	$isofile = $FileBrowser.FileName
+
+	#
+	# If we can't access the ISO file, report it
+	#
+	if (!(Test-path -Path $isofile))
+	{ 
+
+		write-host "ISO File is not accessible! Please rerun and choose a valid Windows Setup ISO file." 
+		break
+
+	}	
+
+	#
+	# Save the ISO file path so that user don't have choose again next time.
+	#
+	$isofile | Out-File $settingfile
 }
-
-#
-# If user didn't choose anything, and isofile is still null, let's break
-#
-if ([string]::IsNullOrEmpty($isofile))
-{
-	write-host "No ISO Found! Please rerun and choose a Windows Setup ISO file." 
-	break
-}
-
-#
-# If we can't access the ISO file, report it
-#
-if (!(Test-path -Path $isofile))
-{ 
-
-	write-host "ISO File is not accessible! Please rerun and choose a valid Windows Setup ISO file." 
-	break
-
-}
-
-#
-# Save the ISO file path so that user don't have choose again next time.
-#
-$isofile | Out-File $settingfile
 
 #
 # Get local disks and Find all USB Disks. Use the *usbstor* as a filter here unless Microsoft change the behavior
@@ -272,7 +301,6 @@ if ([string]::IsNullOrEmpty($fat32driveletter))
 	write-host "FAT32 Partition Initialization Failed!" 
 	break	
 }
-$fat32driveletter = $fat32driveletter + ":"
 
 # Format the NTFS partition and assign the drive letter
 $usbdisk | Get-Partition -PartitionNumber 2 -OutVariable ntfspart | Format-Volume -FileSystem NTFS -NewFileSystemLabel "NTFSDATA" -OutVariable ntfs32vol
@@ -286,65 +314,96 @@ if ([string]::IsNullOrEmpty($ntfsdriveletter))
 	write-host "NTFS Partition Initialization Failed!" 
 	break	
 }
-$ntfsdriveletter = $ntfsdriveletter + ":"
 
-# Mount the ISO to virtual DVD drive and get the driver letter
-$isoimage = Mount-DiskImage -ImagePath $isofile
-$isovol = $isoimage | Get-Volume
-#$isodriveletter = $isovol.DriveLetter.ToString() + ":"
-$isodriveletter = $isovol.DriveLetter.ToString()
-if ([string]::IsNullOrEmpty($isodriveletter))
+#
+# Set ntfsroot and fat32root
+#
+$ntfsroot = $ntfsdriveletter + ":\"
+$fat32root = $fat32driveletter + ":\"
+$ntfsrootlog = $ntfsroot + $settingfile
+$fat32rootlog = $fat32root + $settingfile
+
+#
+# Mount the ISO to virtual DVD drive and get the driver letter if we don't have a DVD
+# Set the srcdriveletter here.
+#
+if ([string]::IsNullOrEmpty($dvddriveletter))
 {
-	write-host "ISO DVD Mount Failed!" 
-	break	
+	#
+	# If we don't have DVD, we use ISO
+	#
+	$isoimage = Mount-DiskImage -ImagePath $isofile
+	$isovol = $isoimage | Get-Volume
+	#$isodriveletter = $isovol.DriveLetter.ToString() + ":"
+	$isodriveletter = $isovol.DriveLetter.ToString()
+	if ([string]::IsNullOrEmpty($isodriveletter))
+	{
+		write-host "ISO DVD Mount Failed!" 
+		break	
+	}
+
+	$srcdriveletter= $isodriveletter 
+
+	#
+	# Save the info to the USB so that later user can tell where it comes from.
+	#
+
+	$isofile | Out-File $ntfsrootlog
+	$isofile | Out-File $fat32rootlog 
+
+} else { 
+	#
+	# Else we use DVD ROM
+	#
+	$srcdriveletter = $dvddriveletter
+	
+	#
+	# Save the info to the USB so that later user can tell where it comes from.
+	#
+
+	$dvdvol.FileSystemLabel | Out-File $ntfsrootlog
+	$dvdvol.FileSystemLabel | Out-File $fat32rootlog 
 }
-$isodriveletter = $isodriveletter + ":"
 
 #
-# Prepare the envrinment vars for robocopy to copy files
+# Prepare the src vars for robocopy to copy files
 #
-$ntfsroot = $ntfsdriveletter + "\"
-$isoroot = $isodriveletter + "\"
-$fat32root = $fat32driveletter + "\"
-$isobootwimfile = $isodriveletter + "\sources"
-$fat32bootwimfolder = $fat32driveletter + "\sources"
+$srcroot = $srcdriveletter + ":\"
+$srcbootwimfolder = $srcdriveletter + ":\sources"
+$fat32bootwimfolder = $fat32driveletter + ":\sources"
 
 #
 # Use Rococopy to copy the Windows Setup Files to NTFS and FAT32 partitions
 # Don't expect the copy will fail
 #
-robocopy $isoroot $ntfsroot /E
-robocopy $isodriveletter $fat32driveletter /MIR /XD sources
-robocopy $isobootwimfile $fat32bootwimfolder boot.wim
-
-#
-# Save the info to the USB so that later user can tell where it comes from.
-#
-$ntfsrootlog = $ntfsroot + $settingfile
-$fat32rootlog = $fat32root + $settingfile
-$isofile | Out-File $ntfsrootlog
-$isofile | Out-File $fat32rootlog 
+robocopy $srcroot $ntfsroot /E
+robocopy $srcroot $fat32root /E /XD sources DS support upgrade
+robocopy $srcbootwimfolder $fat32bootwimfolder boot.wim
 
 #
 # Dismount the ISO image, eject the DVD. Keep retrying every 1 second
+# Not applicable for real DVD ROM
 #
-$loopcount = 0
-while($isoimage.Attached) 
-{
-	$isoimage  = Dismount-DiskImage $isofile 
-	if($isoimage.Attached) 
-	{ 
-		Start-Sleep 1
-		Write-Host "Ejecting DVD Retrying Every 1 Second!"
-	}
-
-	$loopcount++
-	if ($loopcount -gt 30) 
+if (!([string]::IsNullOrEmpty($dvddriveletter)))
+{ 
+	$loopcount = 0
+	while($isoimage.Attached) 
 	{
-		Write-Host "Failed to Eject ISO/DVD!"
-		break
-	}
-} 
+		$isoimage  = Dismount-DiskImage $isofile 
+		if($isoimage.Attached) 
+		{ 
+			Start-Sleep 1
+			Write-Host "Ejecting DVD Retrying Every 1 Second!"
+		}
+
+		$loopcount++
+		if ($loopcount -gt 30) 
+		{
+			Write-Host "Failed to Eject ISO/DVD!"
+			break
+		}
+	} 
+}
 
 #
 # Done
