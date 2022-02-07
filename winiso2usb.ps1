@@ -78,20 +78,20 @@ $maxusbsize = $maxusbsizeG * $sizeinG
 # Check DVD ROM. If there is a Setup DVD, we will use it
 # We just need one DVD
 #
-$dvdvol = Get-Volume | where { ($_.DriveType -eq "CD-ROM") -and ($_.Size -gt 0) }
-if (!($dvdvol.count -gt 1)) {
-	if (!([string]::IsNullOrEmpty($dvdvol.DriveLetter)))
+Get-Volume | where { ($_.DriveType -eq "CD-ROM") -and ($_.Size -gt 0) } -OutVariable dvdvol
+if (!($dvdvol -is [array])) {
+	if (!([string]::IsNullOrWhiteSpace($dvdvol.DriveLetter)))
 	{ 
 		$dvddriveletter = $dvdvol.DriveLetter.ToString()
 		$dvdtestfilepath = $dvddriveletter + $dvdtestfile
 
-		#
 		# If bootx64.efi is not there, it's not the setup disk.
-		#
 		if (!(Test-path -Path $dvdtestfilepath))
 		{
+			# Not able to access the bootx64.efi
 			$dvddriveletter = $null
 		} else {
+			# If use DVD, set $isofile to $null
 			$isofile = $null
 		}
 	} 
@@ -99,7 +99,7 @@ if (!($dvdvol.count -gt 1)) {
 	write-hsot "More then two DVD ROM! We can only use 1!"
 }
 
-if ([string]::IsNullOrEmpty($dvddriveletter))
+if ([string]::IsNullOrWhiteSpace($dvddriveletter))
 {
 	#
 	# Check the local path, 
@@ -136,7 +136,7 @@ if ([string]::IsNullOrEmpty($dvddriveletter))
 	#
 	# If the isofile is not defined, pop up a Window to allow the user to choose an ISO/IMG file. 
 	#
-	if ([string]::IsNullOrEmpty($isofile))
+	if ([string]::IsNullOrWhiteSpace($isofile))
 	{
 		Add-Type -AssemblyName System.Windows.Forms
 		$FileBrowser = New-Object System.Windows.Forms.OpenFileDialog -Property @{ 
@@ -150,7 +150,7 @@ if ([string]::IsNullOrEmpty($dvddriveletter))
 	#
 	# If user didn't choose anything, and isofile is still null, let's break
 	#
-	if ([string]::IsNullOrEmpty($isofile))
+	if ([string]::IsNullOrWhiteSpace($isofile))
 	{
 		write-host "No ISO Found! Please rerun and choose a Windows Setup ISO file." 
 		break
@@ -167,15 +167,11 @@ if ([string]::IsNullOrEmpty($dvddriveletter))
 
 	}	
 
-	#
 	# Save the ISO file path so that user don't have choose again next time.
-	#
 	$isofile | Out-File $settingfile
 }
 
-#
 # Get local disks and Find all USB Disks. Use the *usbstor* as a filter here unless Microsoft change the behavior
-#
 Get-Disk | where{ $_.Path -like "*usbstor*" } -OutVariable usbdisk
 
 #
@@ -238,7 +234,7 @@ If( ($usbdisk.count -gt 1) -or ($usbdisk.Size -gt $maxusbsize) )
 	#
 	foreach ($disk in $usbdisk)
 	{ 
-  		$diskname = $disk.Number.ToString() + " : " + [math]::Round($disk.Size/($sizeinG)).ToString() + " G : " + $disk.Model.ToString()
+  		$diskname = $disk.Number.ToString() + ":" + [math]::Round($disk.Size/($sizeinG)).ToString() + "G:" + $disk.Model.ToString()
   		[void] $listBox.Items.Add($diskname)
 	}
   
@@ -246,29 +242,17 @@ If( ($usbdisk.count -gt 1) -or ($usbdisk.Size -gt $maxusbsize) )
 	# Create the control and show it
 	#
 	$form.Controls.Add($listBox)
- 
-	$form.Topmost = $true
- 
-	$result = $form.ShowDialog()
+ 	$form.Topmost = $true
+ 	$result = $form.ShowDialog()
  
 	#
 	# User has chosen one
 	#
 	if ($result -eq [System.Windows.Forms.DialogResult]::OK)
 	{
-		#
-		# Just SubString(0,1), Don't really want to see any > 9 disks include the local disks.
-		#
-		If ($usbdisk.count -gt 9) 
-		{
-			write-host "Too many USB Disks Found!" 
-			break	
-		}
-    	$x = $listBox.SelectedItem.SubString(0,1)
-		#
+    	$disknumber = $listBox.SelectedItem.Split(":")
 		# Get the selected usb disk
-		#
-    	$usbdisk = Get-Disk -Number $x 
+    	$usbdisk = Get-Disk -Number $disknumber[0]
 	} else {
 		write-host "No USB Disk is chosen!" 
 		break	
@@ -288,28 +272,36 @@ $usbdisk | New-Partition -Size $fat32size
 # Create t he ntfs partition
 $usbdisk | New-Partition -UseMaximumSize
 
+#
 # Format the FAT32 partition and set it active and auto assign a drive letter
+#
 $usbdisk | Get-Partition -PartitionNumber 1 -OutVariable fat32part | Format-Volume -FileSystem FAT32 -NewFileSystemLabel "FAT32BOOT" -OutVariable fat32vol
 $usbdisk | Get-Partition -PartitionNumber 1 | Set-Partition -IsActive $true
 $fat32part | Add-PartitionAccessPath -AssignDriveLetter -OutVariable fat32accesspath
 
+#
 # Get the partition again to refresh the assigned letter
+#
 $fat32part = $fat32part | Get-Partition
 $fat32driveletter = $fat32part.DriveLetter.ToString()
-if ([string]::IsNullOrEmpty($fat32driveletter))
+if ([string]::IsNullOrWhiteSpace($fat32driveletter))
 {
 	write-host "FAT32 Partition Initialization Failed!" 
 	break	
 }
 
+#
 # Format the NTFS partition and assign the drive letter
+#
 $usbdisk | Get-Partition -PartitionNumber 2 -OutVariable ntfspart | Format-Volume -FileSystem NTFS -NewFileSystemLabel "NTFSDATA" -OutVariable ntfs32vol
 $ntfspart | Add-PartitionAccessPath -AssignDriveLetter -OutVariable ntfsaccesspath
 
+#
 # Get the partition again to refresh the assigned letter
+#
 $ntfspart = $ntfspart | Get-Partition
 $ntfsdriveletter = $ntfspart.DriveLetter.ToString()
-if ([string]::IsNullOrEmpty($ntfsdriveletter))
+if ([string]::IsNullOrWhiteSpace($ntfsdriveletter))
 {
 	write-host "NTFS Partition Initialization Failed!" 
 	break	
@@ -334,9 +326,9 @@ if ([string]::IsNullOrEmpty($dvddriveletter))
 	#
 	$isoimage = Mount-DiskImage -ImagePath $isofile
 	$isovol = $isoimage | Get-Volume
-	#$isodriveletter = $isovol.DriveLetter.ToString() + ":"
 	$isodriveletter = $isovol.DriveLetter.ToString()
-	if ([string]::IsNullOrEmpty($isodriveletter))
+
+	if ([string]::IsNullOrWhiteSpace($isodriveletter))
 	{
 		write-host "ISO DVD Mount Failed!" 
 		break	
@@ -347,20 +339,16 @@ if ([string]::IsNullOrEmpty($dvddriveletter))
 	#
 	# Save the info to the USB so that later user can tell where it comes from.
 	#
-
 	$isofile | Out-File $ntfsrootlog
 	$isofile | Out-File $fat32rootlog 
 
 } else { 
-	#
 	# Else we use DVD ROM
-	#
 	$srcdriveletter = $dvddriveletter
 	
 	#
 	# Save the info to the USB so that later user can tell where it comes from.
 	#
-
 	$dvdvol.FileSystemLabel | Out-File $ntfsrootlog
 	$dvdvol.FileSystemLabel | Out-File $fat32rootlog 
 }
@@ -381,10 +369,10 @@ robocopy $srcroot $fat32root /E /XD sources DS support upgrade
 robocopy $srcbootwimfolder $fat32bootwimfolder boot.wim
 
 #
-# Dismount the ISO image, eject the DVD. Keep retrying every 1 second
+# Dismount the ISO image, eject the virtual DVD. Keep retrying every 1 second
 # Not applicable for real DVD ROM
 #
-if (!([string]::IsNullOrEmpty($dvddriveletter)))
+if (!([string]::IsNullOrWhiteSpace($dvddriveletter)))
 { 
 	$loopcount = 0
 	while($isoimage.Attached) 
@@ -405,13 +393,9 @@ if (!([string]::IsNullOrEmpty($dvddriveletter)))
 	} 
 }
 
-#
 # Done
-#
 write-host "Done!" 
 
 #
 # End of the file
 #
-
-
