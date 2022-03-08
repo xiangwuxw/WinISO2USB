@@ -266,6 +266,12 @@ If( ($usbdisk.count -gt 1) -or ($usbdisk.Size -gt $maxusbsize) )
 # Clear the Disk
 $usbdisk | Clear-Disk -RemoveData -confirm:$false
 
+# Convert to MBR if it's GPT
+if ($usbdisk.PartitionStyle -ne "MBR")
+{
+    $usbdisk | Set-Disk -PartitionStyle MBR
+}
+
 # Create first fat32 partition
 $usbdisk | New-Partition -Size $fat32size
 
