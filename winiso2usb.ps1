@@ -380,6 +380,7 @@ robocopy $srcbootwimfolder $fat32bootwimfolder boot.wim
 #
 if ([string]::IsNullOrWhiteSpace($dvddriveletter))
 { 
+	Write-Host "ISO Virtual DVD, Ejecting!"
 	$loopcount = 0
 	while($isoimage.Attached) 
 	{
@@ -397,6 +398,9 @@ if ([string]::IsNullOrWhiteSpace($dvddriveletter))
 			break
 		}
 	} 
+} else 
+{
+	Write-Host "Physical DVD, Please remove the DVD manually!"
 }
 
 # Done
