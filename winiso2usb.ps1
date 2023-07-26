@@ -378,7 +378,7 @@ robocopy $srcbootwimfolder $fat32bootwimfolder boot.wim
 # Dismount the ISO image, eject the virtual DVD. Keep retrying every 1 second
 # Not applicable for real DVD ROM
 #
-if (!([string]::IsNullOrWhiteSpace($dvddriveletter)))
+if ([string]::IsNullOrWhiteSpace($dvddriveletter))
 { 
 	$loopcount = 0
 	while($isoimage.Attached) 
